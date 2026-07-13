@@ -1,0 +1,6 @@
+{
+  "name": "Enterprise ERP Suite",
+  "description": "Production-ready full-stack Enterprise Resource Planning (ERP) platform. Built with React, TypeScript, TailwindCSS, Express, Prisma, and robust JWT token rotation, RBAC, and double-entry finance ledgers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

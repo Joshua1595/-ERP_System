@@ -1,0 +1,30 @@
+# Node files
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Build files
+dist
+build
+.svelte-kit
+.next
+
+# Database / Secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.db
+*.db-journal
+
+# Version control
+.git
+.github
+.gitignore
+
+# System / IDE files
+.DS_Store
+.vscode
+.idea
+Thumbs.db

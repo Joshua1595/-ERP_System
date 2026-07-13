@@ -1,0 +1,585 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==========================================
+// 1. AUTHENTICATION & USER DOMAIN
+// ==========================================
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  EMPLOYEE
+  ACCOUNTANT
+}
+
+model User {
+  id                 String    @id @default(uuid())
+  email              String    @unique
+  passwordHash       String
+  role               UserRole  @default(EMPLOYEE)
+  roleId             String?
+  roleRef            Role?     @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  isActive           Boolean   @default(true)
+  mustChangePassword Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relationships
+  profile          Profile?
+  employee         Employee?
+  stockMovements   StockMovement[] @relation("CreatedBy")
+  salesOrders      SalesOrder[]    @relation("SalesOrderCreator")
+  purchaseOrders   PurchaseOrder[] @relation("PurchaseOrderCreator")
+  journalEntries   JournalEntry[]  @relation("JournalEntryCreator")
+  notifications    Notification[]
+  activityLogs     ActivityLog[]
+
+  @@map("users")
+}
+
+model Profile {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  firstName       String
+  lastName        String
+  phone           String?
+  address         String?
+  profilePhotoUrl String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relationships
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("profiles")
+}
+
+// ==========================================
+// 2. HR & EMPLOYEE DOMAIN
+// ==========================================
+
+enum EmployeeStatus {
+  ACTIVE
+  ON_LEAVE
+  TERMINATED
+}
+
+model Department {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  code        String   @unique // e.g., HR, FIN, ENG, SCM
+  description String?
+  managerId   String?  @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  manager   Employee?  @relation("DepartmentManager", fields: [managerId], references: [id], onDelete: SetNull)
+  employees Employee[] @relation("EmployeeDepartment")
+
+  @@map("departments")
+}
+
+model Employee {
+  id           String         @id @default(uuid())
+  userId       String         @unique
+  departmentId String?
+  position     String
+  salary       Decimal        @db.Decimal(12, 2)
+  hireDate     DateTime
+  status       EmployeeStatus @default(ACTIVE)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  // Relationships
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department       Department?     @relation("EmployeeDepartment", fields: [departmentId], references: [id], onDelete: SetNull)
+  managedDepartment Department?    @relation("DepartmentManager")
+  attendances      Attendance[]
+  salaryPayments   SalaryPayment[]
+
+  @@map("employees")
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  HALF_DAY
+  ON_LEAVE
+}
+
+model Attendance {
+  id         String           @id @default(uuid())
+  employeeId String
+  date       DateTime
+  checkIn    DateTime?
+  checkOut   DateTime?
+  status     AttendanceStatus @default(PRESENT)
+  notes      String?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  // Relationships
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, date])
+  @@map("attendances")
+}
+
+model SalaryPayment {
+  id            String   @id @default(uuid())
+  employeeId    String
+  amount        Decimal  @db.Decimal(12, 2)
+  payDate       DateTime
+  paymentMethod String   // e.g. CASH, BANK_TRANSFER, MOBILE_PAYMENT
+  status        String   // e.g. PAID, PENDING
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relationships
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@map("salary_payments")
+}
+
+// ==========================================
+// 3. INVENTORY DOMAIN
+// ==========================================
+
+enum StockMovementType {
+  INCOMING   // Purchase, returns
+  OUTGOING   // Sales, write-offs
+  TRANSFER   // Warehouse to warehouse
+  ADJUSTMENT // Audit corrections
+}
+
+model Category {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  code        String   @unique // e.g., RAW, SEMI, FINISHED
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  products Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id             String   @id @default(uuid())
+  name           String
+  sku            String   @unique // Stock Keeping Unit
+  description    String?
+  categoryId     String
+  price          Decimal  @db.Decimal(10, 2) // Sales price
+  cost           Decimal  @db.Decimal(10, 2) // Purchase/Production cost
+  unitOfMeasure  String   // e.g., PCS, KG, LTRS
+  isDeleted      Boolean  @default(false)
+  imageUrl       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relationships
+  category          Category            @relation(fields: [categoryId], references: [id])
+  stockLevels       StockLevel[]
+  stockMovements    StockMovement[]
+  salesOrderItems   SalesOrderItem[]
+  purchaseOrderItems PurchaseOrderItem[]
+  supplierProducts  SupplierProduct[]
+
+  @@map("products")
+}
+
+model Warehouse {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  code      String   @unique // e.g., WH-EAST, WH-MAIN
+  location  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relationships
+  stockLevels    StockLevel[]
+  stockMovements StockMovement[]
+
+  @@map("warehouses")
+}
+
+model StockLevel {
+  id           String   @id @default(uuid())
+  productId    String
+  warehouseId  String
+  quantity     Decimal  @default(0) @db.Decimal(12, 4)
+  reorderPoint Decimal  @default(10) @db.Decimal(12, 4) // also reorderLevel
+  minStock     Decimal  @default(0) @db.Decimal(12, 4)
+  maxStock     Decimal  @default(1000) @db.Decimal(12, 4)
+  updatedAt    DateTime @updatedAt
+
+  // Relationships
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, warehouseId])
+  @@map("stock_levels")
+}
+
+model StockMovement {
+  id              String            @id @default(uuid())
+  productId       String
+  warehouseId     String
+  quantityChange  Decimal           @db.Decimal(12, 4) // Positive or negative
+  type            StockMovementType
+  referenceNumber String?           // e.g., Sales Order or PO number
+  description     String?
+  createdById     String
+  createdAt       DateTime          @default(now())
+
+  // Relationships
+  product   Product   @relation(fields: [productId], references: [id])
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
+  createdBy User      @relation("CreatedBy", fields: [createdById], references: [id])
+
+  @@map("stock_movements")
+}
+
+// ==========================================
+// 4. SALES & CUSTOMERS DOMAIN
+// ==========================================
+
+enum SalesOrderStatus {
+  DRAFT
+  CONFIRMED
+  SHIPPED
+  CANCELLED
+}
+
+model Customer {
+  id          String   @id @default(uuid())
+  companyName String?
+  contactName String
+  email       String   @unique
+  phone       String?
+  address     String?
+  isDeleted   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  salesOrders SalesOrder[]
+
+  @@map("customers")
+}
+
+model SalesOrder {
+  id          String           @id @default(uuid())
+  orderNumber String           @unique // e.g., SO-2026-0001
+  customerId  String
+  status      SalesOrderStatus @default(DRAFT)
+  totalAmount Decimal          @db.Decimal(12, 2)
+  createdById String
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  // Relationships
+  customer  Customer         @relation(fields: [customerId], references: [id])
+  createdBy User             @relation("SalesOrderCreator", fields: [createdById], references: [id])
+  items     SalesOrderItem[]
+  invoices  Invoice[]
+
+  @@map("sales_orders")
+}
+
+model SalesOrderItem {
+  id           String  @id @default(uuid())
+  salesOrderId String
+  productId    String
+  quantity     Decimal @db.Decimal(12, 4)
+  unitPrice    Decimal @db.Decimal(10, 2)
+  totalPrice   Decimal @db.Decimal(12, 2)
+
+  // Relationships
+  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  product    Product    @relation(fields: [productId], references: [id])
+
+  @@map("sales_order_items")
+}
+
+enum InvoiceStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+}
+
+model Invoice {
+  id             String        @id @default(uuid())
+  invoiceNumber  String        @unique // e.g., INV-2026-0001
+  salesOrderId   String
+  subtotal       Decimal       @default(0.00) @db.Decimal(12, 2)
+  taxRate        Decimal       @default(0.00) @db.Decimal(5, 2)
+  taxAmount      Decimal       @default(0.00) @db.Decimal(12, 2)
+  discountRate   Decimal       @default(0.00) @db.Decimal(5, 2)
+  discountAmount Decimal       @default(0.00) @db.Decimal(12, 2)
+  amount         Decimal       @db.Decimal(12, 2)
+  status         InvoiceStatus @default(UNPAID)
+  dueDate        DateTime
+  attachmentUrl  String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  // Relationships
+  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id])
+  payments   Payment[]
+
+  @@map("invoices")
+}
+
+model Payment {
+  id            String   @id @default(uuid())
+  invoiceId     String
+  amountPaid    Decimal  @db.Decimal(12, 2)
+  paymentMethod String   // e.g., BANK_TRANSFER, CREDIT_CARD, CHECK
+  referenceNo   String?  // transaction hash, wire receipt
+  paymentDate   DateTime @default(now())
+
+  // Relationships
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@map("payments")
+}
+
+// ==========================================
+// 5. PURCHASING & SUPPLIERS DOMAIN
+// ==========================================
+
+enum PurchaseOrderStatus {
+  PENDING
+  APPROVED
+  RECEIVED
+  CANCELLED
+}
+
+model Supplier {
+  id          String   @id @default(uuid())
+  companyName String
+  contactName String?
+  email       String   @unique
+  phone       String?
+  address     String?
+  isDeleted   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relationships
+  purchaseOrders   PurchaseOrder[]
+  supplierProducts SupplierProduct[]
+
+  @@map("suppliers")
+}
+
+model SupplierProduct {
+  id           String   @id @default(uuid())
+  supplierId   String
+  productId    String
+  price        Decimal  @db.Decimal(10, 2)
+  leadTimeDays Int      @default(3)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relationships
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([supplierId, productId])
+  @@map("supplier_products")
+}
+
+model PurchaseOrder {
+  id          String              @id @default(uuid())
+  poNumber    String              @unique // e.g., PO-2026-0001
+  supplierId  String
+  status      PurchaseOrderStatus @default(PENDING)
+  totalAmount Decimal             @db.Decimal(12, 2)
+  createdById String
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  // Relationships
+  supplier  Supplier            @relation(fields: [supplierId], references: [id])
+  createdBy User                @relation("PurchaseOrderCreator", fields: [createdById], references: [id])
+  items     PurchaseOrderItem[]
+
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id              String  @id @default(uuid())
+  purchaseOrderId String
+  productId       String
+  quantity        Decimal @db.Decimal(12, 4)
+  unitCost        Decimal @db.Decimal(10, 2)
+  totalPrice      Decimal @db.Decimal(12, 2)
+
+  // Relationships
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product       Product       @relation(fields: [productId], references: [id])
+
+  @@map("purchase_order_items")
+}
+
+// ==========================================
+// 6. FINANCE & ACCOUNTING (DOUBLE ENTRY)
+// ==========================================
+
+enum AccountType {
+  ASSET       // Debit increases, Credit decreases
+  LIABILITY   // Debit decreases, Credit increases
+  EQUITY      // Debit decreases, Credit increases
+  REVENUE     // Debit decreases, Credit increases
+  EXPENSE     // Debit increases, Credit decreases
+}
+
+enum JournalStatus {
+  DRAFT
+  POSTED
+}
+
+model Account {
+  id          String      @id @default(uuid())
+  name        String      @unique // e.g., Cash, Accounts Receivable, Inventory Asset
+  code        String      @unique // e.g., 1010, 1100, 2000
+  type        AccountType
+  description String?
+  balance     Decimal     @default(0) @db.Decimal(15, 2)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relationships
+  journalLines JournalLine[]
+
+  @@map("accounts")
+}
+
+model JournalEntry {
+  id          String        @id @default(uuid())
+  entryNumber String        @unique // e.g., JE-2026-0001
+  date        DateTime      @default(now())
+  description String
+  status      JournalStatus @default(DRAFT)
+  createdById String
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  // Relationships
+  createdBy User          @relation("JournalEntryCreator", fields: [createdById], references: [id])
+  lines     JournalLine[]
+
+  @@map("journal_entries")
+}
+
+model JournalLine {
+  id             String  @id @default(uuid())
+  journalEntryId String
+  accountId      String
+  debit          Decimal @default(0) @db.Decimal(15, 2)
+  credit         Decimal @default(0) @db.Decimal(15, 2)
+  description    String?
+
+  // Relationships
+  journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account      Account      @relation(fields: [accountId], references: [id])
+
+  @@map("journal_lines")
+}
+
+model Notification {
+  id          String    @id @default(uuid())
+  userId      String?
+  role        UserRole?
+  type        String    // e.g. "LOW_STOCK", "PURCHASE_APPROVAL", "PAYMENT_REMINDER", "ORDER_STATUS"
+  title       String
+  message     String
+  referenceId String?
+  isRead      Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relationships
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model UploadedFile {
+  id           String   @id @default(uuid())
+  filename     String
+  originalName String
+  mimeType     String
+  size         Int
+  key          String   // Storage key or path
+  url          String   // Public access URL
+  provider     String   // "local", "s3", "gcs"
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("uploaded_files")
+}
+
+model ActivityLog {
+  id          String   @id @default(uuid())
+  userId      String?
+  userEmail   String?
+  action      String   // "LOGIN", "LOGOUT", "CREATE", "UPDATE", "DELETE", "FAILED_LOGIN"
+  entityType  String?  // e.g., "PRODUCT", "EMPLOYEE", "INVOICE", "USER"
+  entityId    String?  // The ID of the affected entity
+  ipAddress   String?
+  userAgent   String?
+  details     String?  // Serialized json metadata or descriptive text
+  createdAt   DateTime @default(now())
+
+  // Relationships
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("activity_logs")
+}
+
+model Role {
+  id          String           @id @default(uuid())
+  name        String           @unique // ADMIN, MANAGER, ACCOUNTANT, EMPLOYEE
+  description String?
+  permissions RolePermission[]
+  users       User[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(uuid())
+  name        String           @unique // e.g. "products.read", "finance.write"
+  description String?
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+

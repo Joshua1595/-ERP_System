@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # 1. Enterprise PostgreSQL Database Service
+  # ==========================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: erp-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: erp_production
+      POSTGRES_USER: erp_admin
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-EnterpriseERP_SecretPass_2026}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U erp_admin -d erp_production"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # ==========================================
+  # 2. ERP Application Service
+  # ==========================================
+  erp-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: erp-application
+    restart: always
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgresql://erp_admin:${DATABASE_PASSWORD:-EnterpriseERP_SecretPass_2026}@postgres:5432/erp_production?schema=public
+      - JWT_SECRET=${JWT_SECRET:-PleaseGenerateAStrong32CharSecretForProduction!}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-PleaseGenerateAStrong32CharRefreshSecretForProduction!}
+      - APP_URL=${APP_URL:-http://localhost:3000}
+      - STORAGE_PROVIDER=${STORAGE_PROVIDER:-local}
+      # Cloudinary Settings (Optional)
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
+    volumes:
+      - erp_uploads:/app/uploads
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1536M
+        reservations:
+          cpus: '0.50'
+          memory: 512M
+
+volumes:
+  postgres_data:
+    driver: local
+    name: erp_postgres_data
+  erp_uploads:
+    driver: local
+    name: erp_uploads_data

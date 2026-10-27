@@ -8,7 +8,6 @@ This dossier delivers the production-ready deployment specifications, configurat
 1. **Frontend**: A highly polished Single Page Application (SPA) built using React 19, TypeScript, Vite, Tailwind CSS, and Recharts, utilizing optimistic states and React Query caching.
 2. **Backend**: An Express.js REST API engine utilizing Helmet, CORS security protocols, strict rate-limit policies, XSS input sanitizers, and structured audit logger middlewares.
 3. **Database**: PostgreSQL 16 managed via Prisma ORM for type-safe query compilation, declarative schemas, and structured database migrations.
-4. **AI Capabilities**: Powered by Google Gemini AI via the `@google/genai` TypeScript SDK for business analytics, risk assessments, and intelligent insights.
 
 All code has been audited, linted, compiled, and certified green for production release.
 
